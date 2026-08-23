@@ -16,7 +16,15 @@ from urllib.request import Request, urlopen
 BASE_URL = "https://www.vlr.gg/"
 MATCHES_URL = urljoin(BASE_URL, "matches/")
 USER_AGENT = "cassian.vct-scoreline/1.0 (+https://www.vlr.gg/)"
+MAX_HTML_BYTES = 2 * 1024 * 1024
+MAX_LIVE_MATCHES = 8
 MAX_UPCOMING = 8
+MAX_WARNINGS = 6
+MAX_TEXT_CHARS = 200
+MAX_SHORT_TEXT_CHARS = 32
+MAX_WARNING_CHARS = 400
+
+VLR_MATCH_URL_RE = re.compile(r"^https://(?:www\.)?vlr\.gg/\d+(?:/|$)")
 
 EXCLUDED_EVENT_RE = re.compile(
     r"(?:challengers|\bvcl\b|ascension|game[- ]?changers|academy|collegiate|"
@@ -396,7 +404,55 @@ def fetch_html(url: str, timeout: float = 10) -> str:
         if response.status != 200:
             raise RuntimeError(f"VLR returned HTTP {response.status}")
         charset = response.headers.get_content_charset() or "utf-8"
-        return response.read().decode(charset, errors="replace")
+        payload = response.read(MAX_HTML_BYTES + 1)
+    if len(payload) > MAX_HTML_BYTES:
+        raise RuntimeError(f"VLR response exceeded {MAX_HTML_BYTES} byte limit")
+    return payload.decode(charset, errors="replace")
+
+
+def clamp_text(value, limit: int = MAX_TEXT_CHARS) -> str:
+    text = clean_text(value)
+    return text[:limit]
+
+
+def bounded_int(value) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def bounded_team(team) -> dict:
+    team = team if isinstance(team, dict) else {}
+    return {
+        "name": clamp_text(team.get("name")),
+        "seriesScore": bounded_int(team.get("seriesScore")),
+        "mapScore": bounded_int(team.get("mapScore")),
+    }
+
+
+def bounded_match(match) -> dict:
+    match = match if isinstance(match, dict) else {}
+    url = match.get("url")
+    url = url if isinstance(url, str) and VLR_MATCH_URL_RE.match(url) else ""
+    teams = [bounded_team(team) for team in (match.get("teams") or [])[:2]]
+    while len(teams) < 2:
+        teams.append({"name": "", "seriesScore": None, "mapScore": None})
+    attacking = match.get("attackingTeam")
+    return {
+        "id": clamp_text(match.get("id"), MAX_SHORT_TEXT_CHARS),
+        "url": url,
+        "event": clamp_text(match.get("event")),
+        "series": clamp_text(match.get("series")),
+        "date": clamp_text(match.get("date")),
+        "time": clamp_text(match.get("time")),
+        "eta": clamp_text(match.get("eta"), MAX_SHORT_TEXT_CHARS),
+        "status": clamp_text(match.get("status"), MAX_SHORT_TEXT_CHARS),
+        "teams": teams,
+        "map": clamp_text(match.get("map"), MAX_SHORT_TEXT_CHARS),
+        "attackingTeam": attacking if attacking in (0, 1) else None,
+        "round": bounded_int(match.get("round")),
+        "gameId": clamp_text(match.get("gameId"), MAX_SHORT_TEXT_CHARS),
+    }
 
 
 def build_snapshot(fetcher=fetch_html) -> dict:
@@ -414,13 +470,19 @@ def build_snapshot(fetcher=fetch_html) -> dict:
             live.append(match)
             warnings.append(f"{match['id']}: {clean_text(str(error))}")
 
+    warning_text = "Live map details unavailable for " + ", ".join(warnings[:MAX_WARNINGS])
+    warning_text = warning_text[:MAX_WARNING_CHARS]
+    if len(warnings) > MAX_WARNINGS:
+        suffix = f" (+{len(warnings) - MAX_WARNINGS} more)"
+        warning_text = warning_text[:MAX_WARNING_CHARS - len(suffix)] + suffix
+
     return {
         "ok": True,
         "source": "VLR.gg",
         "fetchedAt": datetime.now(timezone.utc).isoformat(),
-        "live": live,
-        "upcoming": upcoming[:MAX_UPCOMING],
-        "warning": "Live map details unavailable for " + ", ".join(warnings) if warnings else "",
+        "live": [bounded_match(match) for match in live[:MAX_LIVE_MATCHES]],
+        "upcoming": [bounded_match(match) for match in upcoming[:MAX_UPCOMING]],
+        "warning": warning_text,
     }
 
 

@@ -35,6 +35,12 @@ BarWidget {
   readonly property int idleRefreshSeconds: boundedSetting("idleRefreshSeconds", 120, 30, 900)
   readonly property int refreshInterval: (liveMatches.length > 0 ? liveRefreshSeconds : idleRefreshSeconds) * 1000
 
+  // Hard ceilings for data received from the helper process and rendered remotely.
+  readonly property int maxSnapshotChars: 256 * 1024
+  readonly property int maxErrorChars: 8 * 1024
+  readonly property int maxListItems: 12
+  readonly property int maxFieldChars: 300
+
   readonly property string barTooltip: {
     if (loading && lastUpdated === "") return "VCT - loading VLR.gg"
     if (liveMatches.length > 0) {
@@ -136,13 +142,17 @@ BarWidget {
 
   function applySnapshot(snapshot) {
     if (!snapshot || snapshot.ok !== true) {
-      errorText = snapshot && snapshot.error ? String(snapshot.error) : "Could not read VLR.gg data"
+      errorText = clampRemoteText(snapshot && snapshot.error ? snapshot.error : "Could not read VLR.gg data")
       return
     }
-    liveMatches = Array.isArray(snapshot.live) ? snapshot.live : []
-    upcomingMatches = Array.isArray(snapshot.upcoming) ? snapshot.upcoming : []
-    errorText = snapshot.warning ? String(snapshot.warning) : ""
+    liveMatches = Array.isArray(snapshot.live) ? snapshot.live.slice(0, maxListItems) : []
+    upcomingMatches = Array.isArray(snapshot.upcoming) ? snapshot.upcoming.slice(0, maxListItems) : []
+    errorText = clampRemoteText(snapshot.warning)
     lastUpdated = new Date().toLocaleTimeString(Qt.locale(), "HH:mm:ss")
+  }
+
+  function clampRemoteText(value) {
+    return String(value || "").substring(0, maxFieldChars)
   }
 
   function open() {
@@ -183,20 +193,68 @@ BarWidget {
 
   Process {
     id: fetchProcess
-    stdout: StdioCollector {
+    property string snapshotData: ""
+    property string errorData: ""
+    property bool snapshotOverflowed: false
+    property bool errorOverflowed: false
+
+    function resetBuffers() {
+      snapshotData = ""
+      errorData = ""
+      snapshotOverflowed = false
+      errorOverflowed = false
+    }
+
+    stdout: SplitParser {
       id: fetchStdout
-      waitForEnd: true
+      splitMarker: "\n"
+
+      onRead: function(data) {
+        const chunk = String(data)
+        if (chunk === "" || fetchProcess.snapshotOverflowed) return
+        if (fetchProcess.snapshotData.length + chunk.length > root.maxSnapshotChars) {
+          fetchProcess.snapshotOverflowed = true
+          fetchProcess.snapshotData = ""
+          return
+        }
+        fetchProcess.snapshotData += chunk
+      }
     }
-    stderr: StdioCollector {
+
+    stderr: SplitParser {
       id: fetchStderr
-      waitForEnd: true
+      splitMarker: "\n"
+
+      onRead: function(data) {
+        const chunk = String(data)
+        if (chunk === "" || fetchProcess.errorOverflowed) return
+        const merged = fetchProcess.errorData === ""
+          ? chunk : fetchProcess.errorData + "\n" + chunk
+        if (merged.length > root.maxErrorChars) {
+          fetchProcess.errorOverflowed = true
+          fetchProcess.errorData = ""
+          return
+        }
+        fetchProcess.errorData = merged
+      }
     }
+
+    onStarted: fetchProcess.resetBuffers()
+
     onExited: function(exitCode) {
       root.loading = false
-      const output = String(fetchStdout.text || "").trim()
+      if (fetchProcess.snapshotOverflowed) {
+        root.errorText = "VLR.gg sent more data than expected"
+        fetchProcess.resetBuffers()
+        return
+      }
+      const output = fetchProcess.snapshotData.trim()
       if (output === "") {
-        const stderr = String(fetchStderr.text || "").trim()
-        root.errorText = stderr !== "" ? root.firstLine(stderr) : "VLR.gg returned no data"
+        const stderr = fetchProcess.errorData.trim()
+        root.errorText = fetchProcess.errorOverflowed
+          ? "VLR.gg reported an error"
+          : (stderr !== "" ? root.firstLine(stderr) : "VLR.gg returned no data")
+        fetchProcess.resetBuffers()
         return
       }
       try {
@@ -204,6 +262,7 @@ BarWidget {
       } catch (error) {
         root.errorText = "Could not parse VLR.gg response"
       }
+      fetchProcess.resetBuffers()
     }
   }
 
@@ -299,6 +358,7 @@ BarWidget {
               anchors.fill: parent
               anchors.margins: Style.space(8)
               text: root.errorText
+              textFormat: Text.PlainText
               color: root.liveColor
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
@@ -362,6 +422,7 @@ BarWidget {
                     Text {
                       Layout.fillWidth: true
                       text: liveCard.modelData.event || "VCT"
+                      textFormat: Text.PlainText
                       color: root.fg
                       font.family: Style.font.family
                       font.pixelSize: Style.font.body
@@ -372,6 +433,7 @@ BarWidget {
                     Text {
                       Layout.fillWidth: true
                       text: liveCard.modelData.series || "Live match"
+                      textFormat: Text.PlainText
                       color: root.dimText
                       font.family: Style.font.family
                       font.pixelSize: Style.font.caption
@@ -405,6 +467,7 @@ BarWidget {
                   Text {
                     Layout.fillWidth: true
                     text: root.teamName(liveCard.modelData, 0)
+                    textFormat: Text.PlainText
                     color: root.fg
                     font.family: Style.font.family
                     font.pixelSize: Style.font.body
@@ -414,6 +477,7 @@ BarWidget {
 
                   Text {
                     text: root.mapScore(liveCard.modelData, 0)
+                    textFormat: Text.PlainText
                     color: root.scoreColor(liveCard.modelData, 0)
                     font.family: Style.font.family
                     font.pixelSize: Style.font.display
@@ -429,6 +493,7 @@ BarWidget {
                     Text {
                       Layout.fillWidth: true
                       text: root.seriesScore(liveCard.modelData, 0) + " : " + root.seriesScore(liveCard.modelData, 1)
+                      textFormat: Text.PlainText
                       color: root.fg
                       font.family: Style.font.family
                       font.pixelSize: Style.font.subtitle
@@ -449,6 +514,7 @@ BarWidget {
                     Text {
                       Layout.fillWidth: true
                       text: liveCard.modelData.map || "CURRENT MAP"
+                      textFormat: Text.PlainText
                       color: root.dimText
                       font.family: Style.font.family
                       font.pixelSize: Style.font.caption
@@ -459,6 +525,7 @@ BarWidget {
 
                   Text {
                     text: root.mapScore(liveCard.modelData, 1)
+                    textFormat: Text.PlainText
                     color: root.scoreColor(liveCard.modelData, 1)
                     font.family: Style.font.family
                     font.pixelSize: Style.font.display
@@ -470,6 +537,7 @@ BarWidget {
                   Text {
                     Layout.fillWidth: true
                     text: root.teamName(liveCard.modelData, 1)
+                    textFormat: Text.PlainText
                     color: root.fg
                     font.family: Style.font.family
                     font.pixelSize: Style.font.body
@@ -484,6 +552,7 @@ BarWidget {
 
                   Text {
                     text: liveCard.modelData.round ? "ROUND " + liveCard.modelData.round : "LIVE MAP"
+                    textFormat: Text.PlainText
                     color: root.dimmerText
                     font.family: Style.font.family
                     font.pixelSize: Style.font.caption
@@ -493,6 +562,7 @@ BarWidget {
                   Text {
                     Layout.fillWidth: true
                     text: root.attackText(liveCard.modelData)
+                    textFormat: Text.PlainText
                     color: liveCard.modelData.attackingTeam === undefined || liveCard.modelData.attackingTeam === null
                       ? root.dimmerText : root.liveColor
                     font.family: Style.font.family
@@ -567,6 +637,7 @@ BarWidget {
                   Layout.fillWidth: true
                   text: root.teamAbbreviation(upcomingCard.modelData, 0)
                     + "  vs  " + root.teamAbbreviation(upcomingCard.modelData, 1)
+                  textFormat: Text.PlainText
                   color: root.fg
                   font.family: Style.font.family
                   font.pixelSize: Style.font.body
@@ -576,6 +647,7 @@ BarWidget {
 
                 Text {
                   text: upcomingCard.modelData.time || "TBD"
+                  textFormat: Text.PlainText
                   color: root.dimText
                   font.family: Style.font.family
                   font.pixelSize: Style.font.caption
@@ -591,6 +663,7 @@ BarWidget {
                     id: etaText
                     anchors.centerIn: parent
                     text: upcomingCard.modelData.eta || "TBD"
+                    textFormat: Text.PlainText
                     color: root.liveColor
                     font.family: Style.font.family
                     font.pixelSize: Style.font.caption

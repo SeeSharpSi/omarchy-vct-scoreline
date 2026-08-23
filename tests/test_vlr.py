@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 import vlr
 
@@ -155,6 +156,112 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(len(snapshot["upcoming"]), 1)
         self.assertEqual(snapshot["live"][0]["teams"][1]["seriesScore"], 1)
         self.assertEqual(snapshot["live"][0]["teams"][0]["mapScore"], 9)
+
+
+class FetchLimitTests(unittest.TestCase):
+    class FakeHeaders:
+        def get_content_charset(self):
+            return "utf-8"
+
+    class FakeResponse:
+        def __init__(self, payload: bytes):
+            self.payload = payload
+            self.status = 200
+            self.headers = FetchLimitTests.FakeHeaders()
+
+        def read(self, size=-1):
+            return self.payload[:size] if size >= 0 else self.payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def test_reads_at_most_one_byte_past_ceiling(self):
+        payload = b"<html>fine</html>"
+        response = self.FakeResponse(payload)
+        response.read = mock.Mock(
+            side_effect=lambda size=-1: payload[:size] if size >= 0 else payload
+        )
+        with mock.patch.object(vlr, "urlopen", return_value=response):
+            self.assertEqual(vlr.fetch_html("https://www.vlr.gg/matches/"), "<html>fine</html>")
+            response.read.assert_called_once_with(vlr.MAX_HTML_BYTES + 1)
+
+    def test_rejects_oversized_response_before_parsing(self):
+        oversized = b"x" * (vlr.MAX_HTML_BYTES + 5)
+        with mock.patch.object(vlr, "urlopen", return_value=self.FakeResponse(oversized)):
+            with self.assertRaises(RuntimeError):
+                vlr.fetch_html("https://www.vlr.gg/matches/")
+
+
+class BoundingTests(unittest.TestCase):
+    def test_bounded_match_clamps_fields_and_drops_foreign_urls(self):
+        bounded = vlr.bounded_match({
+            "id": "9" * 64,
+            "url": "https://evil.example/123/steal",
+            "event": "E" * 500,
+            "series": "S" * 500,
+            "date": "D" * 500,
+            "time": "T" * 500,
+            "eta": "H" * 500,
+            "status": "live",
+            "teams": [
+                {"name": "N" * 500, "seriesScore": 2, "mapScore": True},
+                {"name": "Ok", "seriesScore": None, "mapScore": 7},
+                {"name": "Dropped", "seriesScore": 0},
+            ],
+            "map": "M" * 500,
+            "attackingTeam": 7,
+            "round": "13",
+            "gameId": "G" * 500,
+        })
+        self.assertEqual(len(bounded["id"]), vlr.MAX_SHORT_TEXT_CHARS)
+        self.assertEqual(bounded["url"], "")
+        for field in ("event", "series", "date", "time"):
+            self.assertEqual(len(bounded[field]), vlr.MAX_TEXT_CHARS)
+        self.assertEqual(len(bounded["eta"]), vlr.MAX_SHORT_TEXT_CHARS)
+        self.assertEqual(len(bounded["teams"]), 2)
+        self.assertEqual(len(bounded["teams"][0]["name"]), vlr.MAX_TEXT_CHARS)
+        self.assertIsNone(bounded["teams"][0]["mapScore"])
+        self.assertIsNone(bounded["attackingTeam"])
+        self.assertIsNone(bounded["round"])
+        self.assertEqual(len(bounded["gameId"]), vlr.MAX_SHORT_TEXT_CHARS)
+
+    def test_bounded_match_keeps_valid_vlr_url(self):
+        url = "https://www.vlr.gg/12345/alpha-vs-bravo"
+        self.assertEqual(vlr.bounded_match({"url": url})["url"], url)
+
+    def test_snapshot_bounds_items_and_field_lengths(self):
+        schedule = '<div class="wf-label mod-large">Today</div>'
+        for index in range(12):
+            schedule += listing_match(
+                str(index), f"alpha-vs-bravo-vct-2026-americas-stage-{index}",
+                "VCT 2026: Americas Stage " + "X" * 400,
+            )
+
+        def fetcher(url):
+            return schedule
+
+        snapshot = vlr.build_snapshot(fetcher)
+        self.assertEqual(len(snapshot["upcoming"]), vlr.MAX_UPCOMING)
+        for match in snapshot["upcoming"]:
+            self.assertLessEqual(len(match["event"]), vlr.MAX_TEXT_CHARS)
+
+    def test_snapshot_bounds_warning_text(self):
+        schedule = '<div class="wf-label mod-large">Today</div>'
+        schedule += listing_match(
+            "100", "alpha-vs-bravo-vct-2026-americas-stage-2", "VCT 2026: Americas Stage 2",
+            status="LIVE", score_one="0", score_two="1",
+        )
+
+        def fetcher(url):
+            if url == vlr.MATCHES_URL:
+                return schedule
+            raise ValueError("F" * 1000)
+
+        snapshot = vlr.build_snapshot(fetcher)
+        self.assertEqual(len(snapshot["warning"]), vlr.MAX_WARNING_CHARS)
 
 
 if __name__ == "__main__":
