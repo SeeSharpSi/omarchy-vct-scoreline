@@ -1,0 +1,626 @@
+import QtQuick
+import QtQuick.Controls as QQC
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import qs.Ui
+
+BarWidget {
+  id: root
+  moduleName: "cassian.vct-scoreline"
+
+  readonly property string fetchScriptPath: {
+    const url = String(Qt.resolvedUrl("./vlr.py"))
+    return url.indexOf("file://") === 0 ? decodeURIComponent(url.substring(7)) : url
+  }
+
+  property bool opened: false
+  property bool loading: false
+  property var liveMatches: []
+  property var upcomingMatches: []
+  property string errorText: ""
+  property string lastUpdated: ""
+
+  readonly property color fg: Color.popups.text
+  readonly property color dimText: Qt.darker(fg, 1.4)
+  readonly property color dimmerText: Qt.darker(fg, 1.75)
+  readonly property color liveColor: Color.urgent
+  readonly property color cardFill: Qt.rgba(fg.r, fg.g, fg.b, 0.045)
+  readonly property color cardBorder: Qt.rgba(fg.r, fg.g, fg.b, 0.13)
+  readonly property color barFg: bar ? bar.barForeground : Color.foreground
+  readonly property color barStatusColor: liveMatches.length > 0 || errorText !== "" ? liveColor : barFg
+
+  readonly property int liveRefreshSeconds: boundedSetting("liveRefreshSeconds", 30, 15, 300)
+  readonly property int idleRefreshSeconds: boundedSetting("idleRefreshSeconds", 120, 30, 900)
+  readonly property int refreshInterval: (liveMatches.length > 0 ? liveRefreshSeconds : idleRefreshSeconds) * 1000
+
+  readonly property string barTooltip: {
+    if (loading && lastUpdated === "") return "VCT - loading VLR.gg"
+    if (liveMatches.length > 0) {
+      const match = liveMatches[0]
+      const suffix = liveMatches.length > 1 ? " (" + liveMatches.length + " live)" : ""
+      return "LIVE VCT - " + teamName(match, 0) + " " + seriesScore(match, 0)
+        + " : " + seriesScore(match, 1) + " " + teamName(match, 1) + suffix
+    }
+    if (errorText !== "") return "VCT - " + firstLine(errorText)
+    if (upcomingMatches.length > 0) {
+      return "VCT - next: " + teamName(upcomingMatches[0], 0) + " vs " + teamName(upcomingMatches[0], 1)
+    }
+    return "VCT - no live match"
+  }
+
+  function boundedSetting(key, fallback, minimum, maximum) {
+    let value = parseInt(String(setting(key, fallback)), 10)
+    if (!isFinite(value)) value = fallback
+    return Math.max(minimum, Math.min(maximum, value))
+  }
+
+  function firstLine(value) {
+    return String(value || "").split("\n")[0]
+  }
+
+  function teamAt(match, index) {
+    if (!match || !match.teams) return null
+    let team = match.teams[index]
+    if (!team && typeof match.teams.at === "function") team = match.teams.at(index)
+    return team || null
+  }
+
+  function teamName(match, index) {
+    const team = teamAt(match, index)
+    return team && team.name ? String(team.name) : "TBD"
+  }
+
+  function score(team, key) {
+    if (!team || team[key] === undefined || team[key] === null || team[key] === "") return "-"
+    return String(team[key])
+  }
+
+  function mapScore(match, index) {
+    return score(teamAt(match, index), "mapScore")
+  }
+
+  function seriesScore(match, index) {
+    return score(teamAt(match, index), "seriesScore")
+  }
+
+  function scoreColor(match, index) {
+    return match && Number(match.attackingTeam) === index ? liveColor : fg
+  }
+
+  function attackText(match) {
+    if (!match || match.attackingTeam === undefined || match.attackingTeam === null) return "ATTACKING SIDE UNKNOWN"
+    return "ATTACKING: " + teamName(match, Number(match.attackingTeam)).toUpperCase()
+  }
+
+  function refresh() {
+    if (fetchProcess.running) return
+    loading = true
+    fetchProcess.command = ["python3", fetchScriptPath]
+    fetchProcess.running = true
+  }
+
+  function applySnapshot(snapshot) {
+    if (!snapshot || snapshot.ok !== true) {
+      errorText = snapshot && snapshot.error ? String(snapshot.error) : "Could not read VLR.gg data"
+      return
+    }
+    liveMatches = Array.isArray(snapshot.live) ? snapshot.live : []
+    upcomingMatches = Array.isArray(snapshot.upcoming) ? snapshot.upcoming : []
+    errorText = snapshot.warning ? String(snapshot.warning) : ""
+    lastUpdated = new Date().toLocaleTimeString(Qt.locale(), "HH:mm:ss")
+  }
+
+  function open() {
+    opened = true
+    refresh()
+  }
+
+  function close() { opened = false }
+  function toggle() { opened ? close() : open() }
+  function closeForPopoutSwitch() { close() }
+
+  readonly property bool popoutSwitchClosing: false
+
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
+
+  WidgetButton {
+    id: button
+    anchors.fill: parent
+    bar: root.bar
+    text: "VCT"
+    fontSize: Style.font.caption
+    foreground: root.barStatusColor
+    horizontalMargin: 7
+    verticalPadding: 6
+    tooltipText: root.barTooltip
+    onPressed: function(btn) { root.toggle() }
+  }
+
+  Timer {
+    id: refreshTimer
+    interval: root.refreshInterval
+    repeat: true
+    running: true
+    triggeredOnStart: true
+    onTriggered: root.refresh()
+  }
+
+  Process {
+    id: fetchProcess
+    stdout: StdioCollector {
+      id: fetchStdout
+      waitForEnd: true
+    }
+    stderr: StdioCollector {
+      id: fetchStderr
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      root.loading = false
+      const output = String(fetchStdout.text || "").trim()
+      if (output === "") {
+        const stderr = String(fetchStderr.text || "").trim()
+        root.errorText = stderr !== "" ? root.firstLine(stderr) : "VLR.gg returned no data"
+        return
+      }
+      try {
+        root.applySnapshot(JSON.parse(output))
+      } catch (error) {
+        root.errorText = "Could not parse VLR.gg response"
+      }
+    }
+  }
+
+  KeyboardPanel {
+    id: panel
+    anchorItem: button
+    bar: root.bar
+    owner: root
+    open: root.opened
+    focusTarget: keyCatcher
+    contentWidth: fittedContentWidth(Style.space(560))
+    contentHeight: fittedContentHeight(contentColumn.implicitHeight, Style.space(680))
+
+    PanelKeyCatcher {
+      id: keyCatcher
+      anchors.fill: parent
+      onCloseRequested: root.close()
+      onTextKey: function(text) {
+        if (text === "r" || text === "R") root.refresh()
+      }
+
+      Flickable {
+        id: contentScroll
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: contentColumn.implicitHeight
+        clip: true
+        interactive: contentHeight > height
+        boundsBehavior: Flickable.StopAtBounds
+
+        ColumnLayout {
+          id: contentColumn
+          width: contentScroll.width
+          spacing: Style.space(10)
+
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(7)
+
+            Text {
+              text: "VCT SCORELINE"
+              color: root.fg
+              font.family: Style.font.family
+              font.pixelSize: Style.font.title
+              font.bold: true
+            }
+
+            Text {
+              text: "VLR.GG"
+              color: root.dimmerText
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Text {
+              visible: root.lastUpdated !== ""
+              text: root.lastUpdated
+              color: root.dimmerText
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+
+            PanelActionButton {
+              iconText: root.loading ? "..." : "R"
+              tooltipText: "Refresh VLR.gg"
+              enabled: !root.loading
+              onClicked: root.refresh()
+            }
+
+            PanelActionButton {
+              iconText: "X"
+              tooltipText: "Close"
+              onClicked: root.close()
+            }
+          }
+
+          PanelSeparator { Layout.fillWidth: true }
+
+          Rectangle {
+            visible: root.errorText !== ""
+            Layout.fillWidth: true
+            implicitHeight: warningText.implicitHeight + Style.space(16)
+            radius: Style.cornerRadius
+            color: Qt.rgba(root.liveColor.r, root.liveColor.g, root.liveColor.b, 0.08)
+            border.width: 1
+            border.color: Qt.rgba(root.liveColor.r, root.liveColor.g, root.liveColor.b, 0.3)
+
+            Text {
+              id: warningText
+              anchors.fill: parent
+              anchors.margins: Style.space(8)
+              text: root.errorText
+              color: root.liveColor
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+            }
+          }
+
+          RowLayout {
+            visible: root.liveMatches.length > 0
+            Layout.fillWidth: true
+
+            Text {
+              text: "LIVE VCT"
+              color: root.liveColor
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1.2
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Text {
+              visible: root.liveMatches.length > 1
+              text: root.liveMatches.length + " MATCHES"
+              color: root.dimmerText
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+          }
+
+          Repeater {
+            model: root.liveMatches
+
+            Rectangle {
+              id: liveCard
+              required property var modelData
+              Layout.fillWidth: true
+              implicitHeight: liveColumn.implicitHeight + Style.space(20)
+              radius: Style.cornerRadius
+              color: root.cardFill
+              border.width: 1
+              border.color: root.cardBorder
+
+              ColumnLayout {
+                id: liveColumn
+                anchors.fill: parent
+                anchors.margins: Style.space(10)
+                spacing: Style.space(7)
+
+                RowLayout {
+                  Layout.fillWidth: true
+                  spacing: Style.space(8)
+
+                  ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(1)
+
+                    Text {
+                      Layout.fillWidth: true
+                      text: liveCard.modelData.event || "VCT"
+                      color: root.fg
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                      elide: Text.ElideRight
+                    }
+
+                    Text {
+                      Layout.fillWidth: true
+                      text: liveCard.modelData.series || "Live match"
+                      color: root.dimText
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideRight
+                    }
+                  }
+
+                  Rectangle {
+                    implicitWidth: liveBadge.implicitWidth + Style.space(14)
+                    implicitHeight: liveBadge.implicitHeight + Style.space(6)
+                    radius: height / 2
+                    color: Qt.rgba(root.liveColor.r, root.liveColor.g, root.liveColor.b, 0.14)
+
+                    Text {
+                      id: liveBadge
+                      anchors.centerIn: parent
+                      text: "LIVE"
+                      color: root.liveColor
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                      font.letterSpacing: 1
+                    }
+                  }
+                }
+
+                RowLayout {
+                  Layout.fillWidth: true
+                  spacing: Style.space(8)
+
+                  Text {
+                    Layout.fillWidth: true
+                    text: root.teamName(liveCard.modelData, 0)
+                    color: root.fg
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    text: root.mapScore(liveCard.modelData, 0)
+                    color: root.scoreColor(liveCard.modelData, 0)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.display
+                    font.bold: true
+                    Layout.minimumWidth: Style.space(32)
+                    horizontalAlignment: Text.AlignHCenter
+                  }
+
+                  ColumnLayout {
+                    Layout.minimumWidth: Style.space(84)
+                    spacing: Style.space(1)
+
+                    Text {
+                      Layout.fillWidth: true
+                      text: root.seriesScore(liveCard.modelData, 0) + " : " + root.seriesScore(liveCard.modelData, 1)
+                      color: root.fg
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.subtitle
+                      font.bold: true
+                      horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    Text {
+                      Layout.fillWidth: true
+                      text: "SERIES"
+                      color: root.dimText
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      font.letterSpacing: 1
+                      horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    Text {
+                      Layout.fillWidth: true
+                      text: liveCard.modelData.map || "CURRENT MAP"
+                      color: root.dimText
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      horizontalAlignment: Text.AlignHCenter
+                      elide: Text.ElideRight
+                    }
+                  }
+
+                  Text {
+                    text: root.mapScore(liveCard.modelData, 1)
+                    color: root.scoreColor(liveCard.modelData, 1)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.display
+                    font.bold: true
+                    Layout.minimumWidth: Style.space(32)
+                    horizontalAlignment: Text.AlignHCenter
+                  }
+
+                  Text {
+                    Layout.fillWidth: true
+                    text: root.teamName(liveCard.modelData, 1)
+                    color: root.fg
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideLeft
+                  }
+                }
+
+                RowLayout {
+                  Layout.fillWidth: true
+
+                  Text {
+                    text: liveCard.modelData.round ? "ROUND " + liveCard.modelData.round : "LIVE MAP"
+                    color: root.dimmerText
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    font.letterSpacing: 1
+                  }
+
+                  Text {
+                    Layout.fillWidth: true
+                    text: root.attackText(liveCard.modelData)
+                    color: liveCard.modelData.attackingTeam === undefined || liveCard.modelData.attackingTeam === null
+                      ? root.dimmerText : root.liveColor
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideLeft
+                  }
+                }
+              }
+            }
+          }
+
+          ColumnLayout {
+            visible: !root.loading && root.liveMatches.length === 0
+            Layout.fillWidth: true
+            spacing: Style.space(2)
+
+            Text {
+              Layout.fillWidth: true
+              text: "NO LIVE VCT MATCH"
+              color: root.fg
+              font.family: Style.font.family
+              font.pixelSize: Style.font.body
+              font.bold: true
+              font.letterSpacing: 1
+              horizontalAlignment: Text.AlignHCenter
+            }
+
+            Text {
+              Layout.fillWidth: true
+              text: "Top-tier regional leagues, Masters, and Champions only"
+              color: root.dimText
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              horizontalAlignment: Text.AlignHCenter
+            }
+          }
+
+          Text {
+            visible: root.upcomingMatches.length > 0
+            text: "UPCOMING VCT"
+            color: root.dimText
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            font.letterSpacing: 1.2
+          }
+
+          Repeater {
+            model: root.upcomingMatches
+
+            Rectangle {
+              id: upcomingCard
+              required property var modelData
+              Layout.fillWidth: true
+              implicitHeight: upcomingRow.implicitHeight + Style.space(16)
+              radius: Style.cornerRadius
+              color: root.cardFill
+              border.width: 1
+              border.color: root.cardBorder
+
+              RowLayout {
+                id: upcomingRow
+                anchors.fill: parent
+                anchors.margins: Style.space(8)
+                spacing: Style.space(10)
+
+                ColumnLayout {
+                  Layout.fillWidth: true
+                  spacing: Style.space(2)
+
+                  Text {
+                    Layout.fillWidth: true
+                    text: root.teamName(upcomingCard.modelData, 0) + "  vs  " + root.teamName(upcomingCard.modelData, 1)
+                    color: root.fg
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    Layout.fillWidth: true
+                    text: (upcomingCard.modelData.event || "VCT") + " - " + (upcomingCard.modelData.series || "")
+                    color: root.dimmerText
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideRight
+                  }
+                }
+
+                ColumnLayout {
+                  Layout.minimumWidth: Style.space(112)
+                  spacing: Style.space(2)
+
+                  Text {
+                    Layout.fillWidth: true
+                    text: upcomingCard.modelData.eta || upcomingCard.modelData.time || "TBD"
+                    color: root.liveColor
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                    horizontalAlignment: Text.AlignRight
+                  }
+
+                  Text {
+                    Layout.fillWidth: true
+                    text: (upcomingCard.modelData.date || "") + "  " + (upcomingCard.modelData.time || "")
+                    color: root.dimmerText
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    horizontalAlignment: Text.AlignRight
+                    elide: Text.ElideLeft
+                  }
+                }
+              }
+            }
+          }
+
+          Text {
+            visible: root.loading
+            Layout.fillWidth: true
+            text: "Refreshing VLR.gg..."
+            color: root.dimText
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.italic: true
+          }
+
+          Text {
+            Layout.fillWidth: true
+            text: "Source: vlr.gg  |  Press R to refresh"
+            color: root.dimmerText
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            opacity: 0.7
+          }
+        }
+
+        QQC.ScrollBar.vertical: QQC.ScrollBar {
+          policy: QQC.ScrollBar.AsNeeded
+        }
+      }
+    }
+  }
+
+  IpcHandler {
+    target: "cassian.vct-scoreline"
+
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function toggle(): void { root.toggle() }
+    function refresh(): void { root.refresh() }
+    function state(): string {
+      return JSON.stringify({
+        opened: root.opened,
+        loading: root.loading,
+        live: root.liveMatches,
+        upcoming: root.upcomingMatches,
+        error: root.errorText,
+        lastUpdated: root.lastUpdated
+      })
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "cassian.vct-scoreline",
+  "name": "VCT Scoreline",
+  "version": "1.0.0",
+  "author": "cassian",
+  "description": "Show live top-tier VCT scores and upcoming matches from VLR.gg",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Widget.qml"
+  },
+  "barWidget": {
+    "displayName": "VCT Scoreline",
+    "description": "Live top-tier VCT scores and upcoming matches from VLR.gg",
+    "category": "Games",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "liveRefreshSeconds": 30,
+      "idleRefreshSeconds": 120
+    },
+    "schema": [
+      {
+        "key": "liveRefreshSeconds",
+        "type": "integer",
+        "label": "Live refresh seconds",
+        "from": 15,
+        "to": 300,
+        "step": 5
+      },
+      {
+        "key": "idleRefreshSeconds",
+        "type": "integer",
+        "label": "Idle refresh seconds",
+        "from": 30,
+        "to": 900,
+        "step": 30
+      }
+    ]
+  }
+}
