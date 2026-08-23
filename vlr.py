@@ -470,11 +470,13 @@ def build_snapshot(fetcher=fetch_html) -> dict:
             live.append(match)
             warnings.append(f"{match['id']}: {clean_text(str(error))}")
 
-    warning_text = "Live map details unavailable for " + ", ".join(warnings[:MAX_WARNINGS])
-    warning_text = warning_text[:MAX_WARNING_CHARS]
-    if len(warnings) > MAX_WARNINGS:
-        suffix = f" (+{len(warnings) - MAX_WARNINGS} more)"
-        warning_text = warning_text[:MAX_WARNING_CHARS - len(suffix)] + suffix
+    warning_text = ""
+    if warnings:
+        warning_text = "Live map details unavailable for " + ", ".join(warnings[:MAX_WARNINGS])
+        warning_text = warning_text[:MAX_WARNING_CHARS]
+        if len(warnings) > MAX_WARNINGS:
+            suffix = f" (+{len(warnings) - MAX_WARNINGS} more)"
+            warning_text = warning_text[:MAX_WARNING_CHARS - len(suffix)] + suffix
 
     return {
         "ok": True,

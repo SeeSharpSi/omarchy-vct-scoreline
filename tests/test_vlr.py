@@ -264,5 +264,22 @@ class BoundingTests(unittest.TestCase):
         self.assertEqual(len(snapshot["warning"]), vlr.MAX_WARNING_CHARS)
 
 
+    def test_snapshot_warning_empty_when_all_details_succeed(self):
+        schedule = '<div class="wf-label mod-large">Today</div>'
+        schedule += listing_match(
+            "100", "alpha-vs-bravo-vct-2026-americas-stage-2", "VCT 2026: Americas Stage 2",
+            status="LIVE", score_one="0", score_two="1",
+        )
+
+        def fetcher(url):
+            if url == vlr.MATCHES_URL:
+                return schedule
+            return live_detail()
+
+        snapshot = vlr.build_snapshot(fetcher)
+        self.assertEqual(len(snapshot["live"]), 1)
+        self.assertEqual(snapshot["warning"], "")
+
+
 if __name__ == "__main__":
     unittest.main()
