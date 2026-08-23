@@ -94,6 +94,13 @@ BarWidget {
     return "ATTACKING: " + teamName(match, Number(match.attackingTeam)).toUpperCase()
   }
 
+  function openMatch(match) {
+    const url = String(match && match.url ? match.url : "")
+    if (!/^https:\/\/(?:www\.)?vlr\.gg\/\d+(?:\/|$)/.test(url)) return
+    Qt.openUrlExternally(url)
+    close()
+  }
+
   function refresh() {
     if (fetchProcess.running) return
     loading = true
@@ -306,9 +313,11 @@ BarWidget {
               Layout.fillWidth: true
               implicitHeight: liveColumn.implicitHeight + Style.space(20)
               radius: Style.cornerRadius
-              color: root.cardFill
+              color: liveMouse.containsMouse
+                ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.085) : root.cardFill
               border.width: 1
-              border.color: root.cardBorder
+              border.color: liveMouse.containsMouse
+                ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.24) : root.cardBorder
 
               ColumnLayout {
                 id: liveColumn
@@ -342,6 +351,14 @@ BarWidget {
                       font.pixelSize: Style.font.caption
                       elide: Text.ElideRight
                     }
+                  }
+
+                  Text {
+                    text: "VLR >"
+                    color: liveMouse.containsMouse ? root.fg : root.dimmerText
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
                   }
 
                   Rectangle {
@@ -468,6 +485,15 @@ BarWidget {
                   }
                 }
               }
+
+              MouseArea {
+                id: liveMouse
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.openMatch(liveCard.modelData)
+              }
             }
           }
 
@@ -516,9 +542,11 @@ BarWidget {
               Layout.fillWidth: true
               implicitHeight: upcomingRow.implicitHeight + Style.space(16)
               radius: Style.cornerRadius
-              color: root.cardFill
+              color: upcomingMouse.containsMouse
+                ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.085) : root.cardFill
               border.width: 1
-              border.color: root.cardBorder
+              border.color: upcomingMouse.containsMouse
+                ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.24) : root.cardBorder
 
               RowLayout {
                 id: upcomingRow
@@ -566,14 +594,24 @@ BarWidget {
 
                   Text {
                     Layout.fillWidth: true
-                    text: (upcomingCard.modelData.date || "") + "  " + (upcomingCard.modelData.time || "")
-                    color: root.dimmerText
+                    text: (upcomingCard.modelData.date || "") + "  "
+                      + (upcomingCard.modelData.time || "") + "  VLR >"
+                    color: upcomingMouse.containsMouse ? root.fg : root.dimmerText
                     font.family: Style.font.family
                     font.pixelSize: Style.font.caption
                     horizontalAlignment: Text.AlignRight
                     elide: Text.ElideLeft
                   }
                 }
+              }
+
+              MouseArea {
+                id: upcomingMouse
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.openMatch(upcomingCard.modelData)
               }
             }
           }

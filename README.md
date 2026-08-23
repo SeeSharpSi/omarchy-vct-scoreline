@@ -22,6 +22,8 @@ Click `VCT` in the bar to open the panel. The label turns red while a match is l
 
 During a live map, the panel shows map score, series score, current map, round, and attacking side. The attacking team's map score is red. If regional matches overlap, all live top-tier matches are shown.
 
+Click any live or upcoming match card to open its match page on VLR.gg.
+
 The widget refreshes every 30 seconds while a match is live and every 120 seconds otherwise. Both intervals are configurable through Omarchy's plugin settings.
 
 ## Test
