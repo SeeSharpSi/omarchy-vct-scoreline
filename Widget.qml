@@ -72,6 +72,32 @@ BarWidget {
     return team && team.name ? String(team.name) : "TBD"
   }
 
+  function teamAbbreviation(match, index) {
+    const name = teamName(match, index)
+    const known = {
+      "Evil Geniuses": "EG",
+      "Gen.G": "GEN",
+      "Global Esports": "GE",
+      "KIWOOM DRX": "DRX",
+      "LEVIATÁN": "LEV",
+      "Nongshim RedForce": "NS",
+      "Paper Rex": "PRX"
+    }
+    if (known[name]) return known[name]
+
+    const words = name.split(/\s+/).filter(function(word) { return word !== "" })
+    if (words.length === 1) {
+      return name.length <= 6 ? name.toUpperCase() : name.substring(0, 3).toUpperCase()
+    }
+
+    const last = words[words.length - 1]
+    if (/^[A-Z0-9]{2,5}$/.test(last)) return last
+    if (words.length === 2 && /^.{1,3}$/.test(words[0]) && /^esports$/i.test(words[1])) {
+      return words[0].toUpperCase()
+    }
+    return words.map(function(word) { return word.charAt(0) }).join("").substring(0, 5).toUpperCase()
+  }
+
   function score(team, key) {
     if (!team || team[key] === undefined || team[key] === null || team[key] === "") return "-"
     return String(team[key])
@@ -188,7 +214,7 @@ BarWidget {
     owner: root
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: fittedContentWidth(Style.space(560))
+    contentWidth: fittedContentWidth(Style.space(380))
     contentHeight: fittedContentHeight(contentColumn.implicitHeight, Style.space(680))
 
     PanelKeyCatcher {
@@ -244,14 +270,14 @@ BarWidget {
             }
 
             PanelActionButton {
-              iconText: root.loading ? "..." : "R"
+              iconText: "󰑐"
               tooltipText: "Refresh VLR.gg"
               enabled: !root.loading
               onClicked: root.refresh()
             }
 
             PanelActionButton {
-              iconText: "X"
+              iconText: "󰅙"
               tooltipText: "Close"
               onClicked: root.close()
             }
@@ -500,25 +526,16 @@ BarWidget {
           ColumnLayout {
             visible: !root.loading && root.liveMatches.length === 0
             Layout.fillWidth: true
-            spacing: Style.space(2)
+            spacing: 0
 
             Text {
               Layout.fillWidth: true
-              text: "NO LIVE VCT MATCH"
-              color: root.fg
-              font.family: Style.font.family
-              font.pixelSize: Style.font.body
-              font.bold: true
-              font.letterSpacing: 1
-              horizontalAlignment: Text.AlignHCenter
-            }
-
-            Text {
-              Layout.fillWidth: true
-              text: "Top-tier regional leagues, Masters, and Champions only"
+              text: "NO LIVE MATCH"
               color: root.dimText
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1
               horizontalAlignment: Text.AlignHCenter
             }
           }
@@ -540,7 +557,7 @@ BarWidget {
               id: upcomingCard
               required property var modelData
               Layout.fillWidth: true
-              implicitHeight: upcomingRow.implicitHeight + Style.space(16)
+              implicitHeight: upcomingRow.implicitHeight + Style.space(12)
               radius: Style.cornerRadius
               color: upcomingMouse.containsMouse
                 ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.085) : root.cardFill
@@ -551,57 +568,49 @@ BarWidget {
               RowLayout {
                 id: upcomingRow
                 anchors.fill: parent
-                anchors.margins: Style.space(8)
-                spacing: Style.space(10)
+                anchors.margins: Style.space(6)
+                spacing: Style.space(7)
 
-                ColumnLayout {
+                Text {
                   Layout.fillWidth: true
-                  spacing: Style.space(2)
+                  text: root.teamAbbreviation(upcomingCard.modelData, 0)
+                    + "  vs  " + root.teamAbbreviation(upcomingCard.modelData, 1)
+                  color: root.fg
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                  elide: Text.ElideRight
+                }
+
+                Text {
+                  text: upcomingCard.modelData.time || "TBD"
+                  color: root.dimText
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+
+                Rectangle {
+                  implicitWidth: etaText.implicitWidth + Style.space(12)
+                  implicitHeight: etaText.implicitHeight + Style.space(6)
+                  radius: height / 2
+                  color: Qt.rgba(root.liveColor.r, root.liveColor.g, root.liveColor.b, 0.12)
 
                   Text {
-                    Layout.fillWidth: true
-                    text: root.teamName(upcomingCard.modelData, 0) + "  vs  " + root.teamName(upcomingCard.modelData, 1)
-                    color: root.fg
-                    font.family: Style.font.family
-                    font.pixelSize: Style.font.body
-                    font.bold: true
-                    elide: Text.ElideRight
-                  }
-
-                  Text {
-                    Layout.fillWidth: true
-                    text: (upcomingCard.modelData.event || "VCT") + " - " + (upcomingCard.modelData.series || "")
-                    color: root.dimmerText
+                    id: etaText
+                    anchors.centerIn: parent
+                    text: upcomingCard.modelData.eta || "TBD"
+                    color: root.liveColor
                     font.family: Style.font.family
                     font.pixelSize: Style.font.caption
-                    elide: Text.ElideRight
+                    font.bold: true
                   }
                 }
 
-                ColumnLayout {
-                  Layout.minimumWidth: Style.space(112)
-                  spacing: Style.space(2)
-
-                  Text {
-                    Layout.fillWidth: true
-                    text: upcomingCard.modelData.eta || upcomingCard.modelData.time || "TBD"
-                    color: root.liveColor
-                    font.family: Style.font.family
-                    font.pixelSize: Style.font.body
-                    font.bold: true
-                    horizontalAlignment: Text.AlignRight
-                  }
-
-                  Text {
-                    Layout.fillWidth: true
-                    text: (upcomingCard.modelData.date || "") + "  "
-                      + (upcomingCard.modelData.time || "") + "  VLR >"
-                    color: upcomingMouse.containsMouse ? root.fg : root.dimmerText
-                    font.family: Style.font.family
-                    font.pixelSize: Style.font.caption
-                    horizontalAlignment: Text.AlignRight
-                    elide: Text.ElideLeft
-                  }
+                Text {
+                  text: "󰏌"
+                  color: upcomingMouse.containsMouse ? root.fg : root.dimText
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.icon
                 }
               }
 
