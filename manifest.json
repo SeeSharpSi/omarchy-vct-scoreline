@@ -4,6 +4,7 @@
   "name": "VCT Scoreline",
   "version": "1.0.0",
   "author": "cassian",
+  "license": "MIT",
   "description": "Show live top-tier VCT scores and upcoming matches from VLR.gg",
   "kinds": ["bar-widget"],
   "entryPoints": {

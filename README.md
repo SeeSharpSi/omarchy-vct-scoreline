@@ -6,15 +6,10 @@ The widget includes regional VCT leagues, Masters, Champions, and LOCK//IN. It e
 
 ## Install
 
-Install this checkout as a user-owned Omarchy plugin:
-
-```bash
-ln -s "$PWD" ~/.config/omarchy/plugins/cassian.vct-scoreline
-omarchy-shell shell rescanPlugins
-omarchy plugin enable cassian.vct-scoreline --section right
+```sh
+omarchy plugin add https://github.com/SeeSharpSi/omarchy-vct-scoreline.git --enable
+omarchy bar move cassian.vct-scoreline --section right
 ```
-
-Omarchy reloads plugin code automatically when files inside its plugin directory change. A symlinked development checkout may require another `omarchy-shell shell rescanPlugins` after edits.
 
 ## Usage
 
@@ -26,12 +21,35 @@ Click any live or upcoming match card to open its match page on VLR.gg.
 
 The widget refreshes every 30 seconds while a match is live and every 120 seconds otherwise. Both intervals are configurable through Omarchy's plugin settings.
 
-## Test
+## Remove
 
-```bash
+```sh
+omarchy plugin remove cassian.vct-scoreline
+```
+
+## Development
+
+Work on this checkout as a user-owned Omarchy plugin:
+
+```sh
+ln -s "$PWD" ~/.config/omarchy/plugins/cassian.vct-scoreline
+omarchy-shell shell rescanPlugins
+omarchy plugin enable cassian.vct-scoreline --section right
+```
+
+Omarchy reloads plugin code automatically when files inside its plugin directory change. A symlinked development checkout may require another `omarchy-shell shell rescanPlugins` after edits.
+
+### Test
+
+```sh
 python3 -m unittest discover -s tests -v
 python3 vlr.py
 omarchy plugin validate .
+qmllint -I "$OMARCHY_PATH/shell" Widget.qml
 ```
 
 `vlr.py` uses only Python's standard library. VLR.gg has no supported public API for this data, so site markup changes can require parser updates.
+
+## License
+
+[MIT](LICENSE)
