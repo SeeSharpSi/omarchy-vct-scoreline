@@ -379,14 +379,6 @@ BarWidget {
                     }
                   }
 
-                  Text {
-                    text: "VLR >"
-                    color: liveMouse.containsMouse ? root.fg : root.dimmerText
-                    font.family: Style.font.family
-                    font.pixelSize: Style.font.caption
-                    font.bold: true
-                  }
-
                   Rectangle {
                     implicitWidth: liveBadge.implicitWidth + Style.space(14)
                     implicitHeight: liveBadge.implicitHeight + Style.space(6)
