@@ -359,12 +359,6 @@ BarWidget {
               enabled: !root.loading
               onClicked: root.refresh()
             }
-
-            PanelActionButton {
-              iconText: "󰅙"
-              tooltipText: "Close"
-              onClicked: root.close()
-            }
           }
 
           PanelSeparator { Layout.fillWidth: true }
