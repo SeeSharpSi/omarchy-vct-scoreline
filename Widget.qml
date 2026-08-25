@@ -335,14 +335,6 @@ BarWidget {
               font.bold: true
             }
 
-            Text {
-              text: "VLR.GG"
-              color: root.dimmerText
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-              font.letterSpacing: 1
-            }
-
             Item { Layout.fillWidth: true }
 
             Text {
