@@ -195,15 +195,14 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  WidgetButton {
+  BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "VCT"
-    fontSize: Style.font.caption
+    // Valorant-style crosshairs glyph (Nerd Font)
+    text: "󰆣"
     foreground: root.barStatusColor
-    horizontalMargin: 7
-    verticalPadding: 6
+    slotSize: Style.bar.statusSlot
     tooltipText: root.barTooltip
     onPressed: function(btn) { root.toggle() }
   }
