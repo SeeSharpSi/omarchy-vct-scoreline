@@ -126,6 +126,32 @@ BarWidget {
     return "ATTACKING: " + teamName(match, Number(match.attackingTeam)).toUpperCase()
   }
 
+  function matchDayPrefix(match) {
+    const label = String(match && match.date ? match.date : "")
+    const months = {
+      january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+      july: 7, august: 8, september: 9, october: 10, november: 11, december: 12
+    }
+    const lower = label.toLowerCase()
+    if (/\btomorrow\b/.test(lower) || /\btoday\b/.test(lower)) {
+      const day = new Date()
+      if (/\btomorrow\b/.test(lower)) day.setDate(day.getDate() + 1)
+      return (day.getMonth() + 1) + "/" + day.getDate()
+    }
+    const found = label.match(/([A-Za-z]+)\.?\s+(\d{1,2})/)
+    if (!found) return ""
+    const month = months[found[1].toLowerCase()]
+    return month ? month + "/" + parseInt(found[2], 10) : ""
+  }
+
+  function matchTimeLabel(match) {
+    const time = String(match && match.time ? match.time : "TBD")
+    const eta = String(match && match.eta ? match.eta : "")
+    if (!/\b\d+\s*d\b/.test(eta)) return time
+    const prefix = matchDayPrefix(match)
+    return prefix === "" ? time : prefix + "  " + time
+  }
+
   function openMatch(match) {
     const url = String(match && match.url ? match.url : "")
     if (!/^https:\/\/(?:www\.)?vlr\.gg\/\d+(?:\/|$)/.test(url)) return
@@ -646,7 +672,7 @@ BarWidget {
                 }
 
                 Text {
-                  text: upcomingCard.modelData.time || "TBD"
+                  text: root.matchTimeLabel(upcomingCard.modelData)
                   textFormat: Text.PlainText
                   color: root.dimText
                   font.family: Style.font.family
