@@ -31,6 +31,21 @@ BarWidget {
   readonly property color barFg: bar ? bar.barForeground : Color.foreground
   readonly property color barStatusColor: liveMatches.length > 0 || errorText !== "" ? liveColor : barFg
 
+  // Omarchy grouped-indicator host. Standalone BarWidget, so resolve the
+  // "omarchy.indicators" host ourselves to join grouped inactive reveal.
+  readonly property var indicatorHost: {
+    var hostBar = root.bar
+    if (!hostBar || !hostBar.moduleSlots || typeof hostBar.moduleWidgets !== "function") return null
+    var hosts = hostBar.moduleWidgets("omarchy.indicators")
+    return Array.isArray(hosts) && hosts.length > 0 ? hosts[0] : null
+  }
+
+  // Concealed at rest: no live match and the host is not revealing inactive
+  // indicators. Collapses this slot the same way the built-in inactive area
+  // does. Live logic tracks liveMatches only.
+  readonly property bool indicatorConcealed: root.liveMatches.length === 0
+    && !(root.indicatorHost && root.indicatorHost.revealInactiveIndicators === true)
+
   readonly property int liveRefreshSeconds: boundedSetting("liveRefreshSeconds", 30, 15, 300)
   readonly property int idleRefreshSeconds: boundedSetting("idleRefreshSeconds", 120, 30, 900)
   readonly property int refreshInterval: (liveMatches.length > 0 ? liveRefreshSeconds : idleRefreshSeconds) * 1000
@@ -192,6 +207,7 @@ BarWidget {
 
   readonly property bool popoutSwitchClosing: false
 
+  visible: !root.indicatorConcealed
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -204,6 +220,10 @@ BarWidget {
     foreground: root.barStatusColor
     slotSize: Style.bar.statusSlot
     tooltipText: root.barTooltip
+    maintainIndicatorReveal: true
+    revealHost: root.indicatorHost
+    dimmed: root.liveMatches.length === 0
+    concealed: root.indicatorConcealed
     onPressed: function(btn) { root.toggle() }
   }
 
