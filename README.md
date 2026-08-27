@@ -21,6 +21,27 @@ Click any live or upcoming match card to open its match page on VLR.gg.
 
 The widget refreshes every 30 seconds while a match is live and every 120 seconds otherwise. Both intervals are configurable through Omarchy's plugin settings.
 
+By default the bar icon is always visible, even when no match is live. To hide it when inactive, enable `hideWhenInactive` in `~/.config/omarchy/shell.json` (uses the per-widget `BarWidget.setting()` entry, no separate config file). When enabled, the icon collapses when no live match is present and only appears during live matches or when the grouped `omarchy.indicators` host is revealing inactive indicators (e.g. on hover).
+
+Example bar layout entry in `~/.config/omarchy/shell.json`:
+
+```json
+{
+  "bar": {
+    "layout": {
+      "center": [
+        {
+          "id": "cassian.vct-scoreline",
+          "hideWhenInactive": true
+        }
+      ]
+    }
+  }
+}
+```
+
+Set `hideWhenInactive` to `false` (or remove it) to always show the icon. The setting defaults to `false`.
+
 ## Remove
 
 ```sh

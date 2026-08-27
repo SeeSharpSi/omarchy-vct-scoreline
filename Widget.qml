@@ -40,10 +40,14 @@ BarWidget {
     return Array.isArray(hosts) && hosts.length > 0 ? hosts[0] : null
   }
 
+  readonly property bool hideWhenInactive: setting("hideWhenInactive", false) === true
+
   // Concealed at rest: no live match and the host is not revealing inactive
   // indicators. Collapses this slot the same way the built-in inactive area
-  // does. Live logic tracks liveMatches only.
-  readonly property bool indicatorConcealed: root.liveMatches.length === 0
+  // does. Live logic tracks liveMatches only. Gated by hideWhenInactive so
+  // the icon stays visible by default when idle.
+  readonly property bool indicatorConcealed: root.hideWhenInactive
+    && root.liveMatches.length === 0
     && !(root.indicatorHost && root.indicatorHost.revealInactiveIndicators === true)
 
   readonly property int liveRefreshSeconds: boundedSetting("liveRefreshSeconds", 30, 15, 300)

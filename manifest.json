@@ -18,7 +18,8 @@
     "defaultSection": "right",
     "defaults": {
       "liveRefreshSeconds": 30,
-      "idleRefreshSeconds": 120
+      "idleRefreshSeconds": 120,
+      "hideWhenInactive": false
     },
     "schema": [
       {
@@ -36,6 +37,13 @@
         "from": 30,
         "to": 900,
         "step": 30
+      },
+      {
+        "key": "hideWhenInactive",
+        "type": "boolean",
+        "label": "Hide when inactive",
+        "description": "Hide the bar icon when no match is live; still shown during live matches or when grouped indicators reveal inactive icons.",
+        "defaultValue": false
       }
     ]
   }
