@@ -123,6 +123,15 @@ BarWidget {
     return words.map(function(word) { return word.charAt(0) }).join("").substring(0, 5).toUpperCase()
   }
 
+  function teamLiveAbbreviation(match, index) {
+    const team = teamAt(match, index)
+    if (team && typeof team.acronym === "string") {
+      const raw = String(team.acronym).trim()
+      if (raw !== "") return raw
+    }
+    return teamAbbreviation(match, index)
+  }
+
   function score(team, key) {
     if (!team || team[key] === undefined || team[key] === null || team[key] === "") return "-"
     return String(team[key])
@@ -501,7 +510,7 @@ BarWidget {
 
                   Text {
                     Layout.fillWidth: true
-                    text: root.teamName(liveCard.modelData, 0)
+                    text: root.teamLiveAbbreviation(liveCard.modelData, 0)
                     textFormat: Text.PlainText
                     color: root.fg
                     font.family: Style.font.family
@@ -571,7 +580,7 @@ BarWidget {
 
                   Text {
                     Layout.fillWidth: true
-                    text: root.teamName(liveCard.modelData, 1)
+                    text: root.teamLiveAbbreviation(liveCard.modelData, 1)
                     textFormat: Text.PlainText
                     color: root.fg
                     font.family: Style.font.family

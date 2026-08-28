@@ -36,7 +36,38 @@ def listing_match(
     """
 
 
-def live_detail(score_one: int = 9, score_two: int = 0) -> str:
+def live_detail(score_one: int = 9, score_two: int = 0, acronym_one: str = "FUT", acronym_two: str = "KC") -> str:
+    rounds = []
+    for number in range(1, score_one + score_two + 1):
+        rounds.append(f"""
+        <div class="vlr-rounds-row-col">
+          <div class="rnd-num">{number}</div>
+          <div class="rnd-sq mod-win mod-t"></div><div class="rnd-sq"></div>
+        </div>
+        """)
+    acronym_markup = ""
+    if acronym_one or acronym_two:
+        acronym_markup = f'<div class="team">{acronym_one}</div><div class="team">{acronym_two}</div>'
+    return f"""
+    <div class="vm-stats-gamesnav-item mod-live" data-game-id="42">Ascent</div>
+    <div class="vm-stats-game" data-game-id="42">
+      <div class="vm-stats-game-header">
+        <div class="team">
+          <div class="score">{score_one}</div><div class="team-name">Alpha</div>
+          <span class="mod-t">{score_one}</span><span class="mod-ct">0</span>
+        </div>
+        <div class="map"><div>Ascent <span class="picked">PICK</span></div></div>
+        <div class="team mod-right">
+          <div class="team-name">Bravo</div><span class="mod-ct">0</span><span class="mod-t">0</span>
+          <div class="score">{score_two}</div>
+        </div>
+      </div>
+      <div class="vlr-rounds-row">{acronym_markup}{''.join(rounds)}</div>
+    </div>
+    """
+
+
+def live_detail_without_acronym_row(score_one: int = 9, score_two: int = 0) -> str:
     rounds = []
     for number in range(1, score_one + score_two + 1):
         rounds.append(f"""
@@ -279,6 +310,96 @@ class BoundingTests(unittest.TestCase):
         snapshot = vlr.build_snapshot(fetcher)
         self.assertEqual(len(snapshot["live"]), 1)
         self.assertEqual(snapshot["warning"], "")
+
+
+class AcronymParsingTests(unittest.TestCase):
+    def test_parses_acronyms_from_round_summary_row(self):
+        detail = vlr.parse_detail(live_detail(acronym_one="FUT", acronym_two="KC"))
+        self.assertEqual(detail["teams"][0]["acronym"], "FUT")
+        self.assertEqual(detail["teams"][1]["acronym"], "KC")
+        self.assertEqual(detail["teams"][0]["name"], "Alpha")
+        self.assertEqual(detail["teams"][1]["name"], "Bravo")
+
+    def test_does_not_confuse_header_full_names_with_round_acronyms(self):
+        # Header has full names Alpha/Bravo, round row has FUT/KC direct text.
+        html = live_detail(acronym_one="FUT", acronym_two="KC")
+        self.assertIn('<div class="team-name">Alpha</div>', html)
+        self.assertIn('<div class="team">FUT</div>', html)
+        detail = vlr.parse_detail(html)
+        self.assertEqual(detail["teams"][0]["name"], "Alpha")
+        self.assertEqual(detail["teams"][1]["name"], "Bravo")
+        self.assertEqual(detail["teams"][0]["acronym"], "FUT")
+        self.assertEqual(detail["teams"][1]["acronym"], "KC")
+
+    def test_fallback_when_acronym_absent_returns_empty_string(self):
+        detail = vlr.parse_detail(live_detail_without_acronym_row())
+        self.assertEqual(detail["teams"][0]["acronym"], "")
+        self.assertEqual(detail["teams"][1]["acronym"], "")
+        # Also when row exists but empty team nodes
+        detail2 = vlr.parse_detail(live_detail(acronym_one="", acronym_two=""))
+        self.assertEqual(detail2["teams"][0]["acronym"], "")
+        self.assertEqual(detail2["teams"][1]["acronym"], "")
+
+    def test_merge_propagates_acronym_and_snapshot(self):
+        match = {
+            "id": "100",
+            "url": "https://www.vlr.gg/100/alpha-vs-bravo",
+            "teams": [{"name": "Alpha", "seriesScore": 1}, {"name": "Bravo", "seriesScore": 0}],
+        }
+        detail = vlr.parse_detail(live_detail(acronym_one="FUT", acronym_two="KC"))
+        merged = vlr.merge_detail(match, detail)
+        self.assertEqual(merged["teams"][0]["acronym"], "FUT")
+        self.assertEqual(merged["teams"][1]["acronym"], "KC")
+        # snapshot propagation
+        schedule = '<div class="wf-label mod-large">Today</div>'
+        schedule += listing_match(
+            "100", "alpha-vs-bravo-vct-2026-americas-stage-2", "VCT 2026: Americas Stage 2",
+            status="LIVE", score_one="1", score_two="0",
+        )
+
+        def fetcher(url):
+            if url == vlr.MATCHES_URL:
+                return schedule
+            return live_detail(acronym_one="FUT", acronym_two="KC")
+
+        snapshot = vlr.build_snapshot(fetcher)
+        self.assertEqual(snapshot["live"][0]["teams"][0]["acronym"], "FUT")
+        self.assertEqual(snapshot["live"][0]["teams"][1]["acronym"], "KC")
+        self.assertEqual(snapshot["live"][0]["teams"][0]["name"], "Alpha")
+
+    def test_merge_fallback_when_acronym_missing(self):
+        match = {
+            "id": "101",
+            "url": "https://www.vlr.gg/101/alpha-vs-bravo",
+            "teams": [{"name": "Alpha", "seriesScore": 0}, {"name": "Bravo", "seriesScore": 0}],
+        }
+        detail = vlr.parse_detail(live_detail_without_acronym_row())
+        merged = vlr.merge_detail(match, detail)
+        self.assertEqual(merged["teams"][0]["acronym"], "")
+        self.assertEqual(merged["teams"][1]["acronym"], "")
+
+    def test_bounded_acronym_length(self):
+        long_acro = "A" * 100
+        bounded = vlr.bounded_team({"name": "Alpha", "acronym": long_acro, "seriesScore": 1, "mapScore": 2})
+        self.assertEqual(len(bounded["acronym"]), vlr.MAX_SHORT_TEXT_CHARS)
+        self.assertEqual(bounded["acronym"], "A" * vlr.MAX_SHORT_TEXT_CHARS)
+        # bounded_match propagates and clamps
+        bounded_match = vlr.bounded_match({
+            "id": "1",
+            "url": "https://www.vlr.gg/1/a-vs-b",
+            "teams": [
+                {"name": "Alpha", "acronym": long_acro, "seriesScore": 0, "mapScore": 0},
+                {"name": "Bravo", "acronym": "KC", "seriesScore": 0, "mapScore": 0},
+            ],
+        })
+        self.assertEqual(len(bounded_match["teams"][0]["acronym"]), vlr.MAX_SHORT_TEXT_CHARS)
+        self.assertEqual(bounded_match["teams"][1]["acronym"], "KC")
+        # missing acronym yields empty string
+        empty = vlr.bounded_team({"name": "Alpha"})
+        self.assertEqual(empty["acronym"], "")
+        empty_match = vlr.bounded_match({"teams": [{"name": "Alpha"}]})
+        self.assertEqual(empty_match["teams"][0]["acronym"], "")
+        self.assertEqual(empty_match["teams"][1]["acronym"], "")
 
 
 if __name__ == "__main__":

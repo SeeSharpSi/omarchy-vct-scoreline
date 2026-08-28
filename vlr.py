@@ -312,6 +312,19 @@ def parse_game_team(node: Node) -> dict:
     }
 
 
+def parse_round_acronyms(game: Node) -> list[str]:
+    row = class_node(game, "vlr-rounds-row")
+    if row is None:
+        return ["", ""]
+    team_nodes = row.find_all(lambda item: item.has_class("team"))
+    acronyms: list[str] = []
+    for node in team_nodes[:2]:
+        acronyms.append(clean_text(node.direct_text()))
+    while len(acronyms) < 2:
+        acronyms.append("")
+    return acronyms[:2]
+
+
 def find_active_game(root: Node) -> Node | None:
     live_nav = root.find_first(
         lambda node: node.has_class("vm-stats-gamesnav-item")
@@ -358,11 +371,15 @@ def parse_detail(html: str) -> dict:
     current_round = sum(score for score in scores if score is not None) + 1 if all(
         score is not None for score in scores
     ) else None
+    acronyms = parse_round_acronyms(game)
 
     return {
         "gameId": game.attr("data-game-id"),
         "map": map_name,
-        "teams": [{"name": team["name"], "mapScore": team["mapScore"]} for team in teams],
+        "teams": [
+            {"name": team["name"], "mapScore": team["mapScore"], "acronym": acronyms[index]}
+            for index, team in enumerate(teams)
+        ],
         "attackingTeam": infer_attacking_team(
             scores,
             [team["initialSide"] for team in teams],
@@ -380,10 +397,18 @@ def merge_detail(match: dict, detail: dict) -> dict:
     for index in range(2):
         listing = listing_teams[index] if index < len(listing_teams) else {}
         live = detail_teams[index] if index < len(detail_teams) else {}
+        acronym = ""
+        live_acronym = live.get("acronym") if isinstance(live, dict) else None
+        listing_acronym = listing.get("acronym") if isinstance(listing, dict) else None
+        if isinstance(live_acronym, str) and clean_text(live_acronym):
+            acronym = clean_text(live_acronym)
+        elif isinstance(listing_acronym, str) and clean_text(listing_acronym):
+            acronym = clean_text(listing_acronym)
         result["teams"].append({
             "name": live.get("name") or listing.get("name", ""),
             "seriesScore": listing.get("seriesScore"),
             "mapScore": live.get("mapScore"),
+            "acronym": acronym,
         })
     result.update({
         "map": detail.get("map", ""),
@@ -423,8 +448,11 @@ def bounded_int(value) -> int | None:
 
 def bounded_team(team) -> dict:
     team = team if isinstance(team, dict) else {}
+    acronym = team.get("acronym")
+    acronym_text = clamp_text(acronym, MAX_SHORT_TEXT_CHARS) if isinstance(acronym, str) else ""
     return {
         "name": clamp_text(team.get("name")),
+        "acronym": acronym_text,
         "seriesScore": bounded_int(team.get("seriesScore")),
         "mapScore": bounded_int(team.get("mapScore")),
     }
@@ -436,7 +464,7 @@ def bounded_match(match) -> dict:
     url = url if isinstance(url, str) and VLR_MATCH_URL_RE.match(url) else ""
     teams = [bounded_team(team) for team in (match.get("teams") or [])[:2]]
     while len(teams) < 2:
-        teams.append({"name": "", "seriesScore": None, "mapScore": None})
+        teams.append({"name": "", "acronym": "", "seriesScore": None, "mapScore": None})
     attacking = match.get("attackingTeam")
     return {
         "id": clamp_text(match.get("id"), MAX_SHORT_TEXT_CHARS),
